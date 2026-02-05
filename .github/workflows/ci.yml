@@ -68,6 +68,11 @@ jobs:
             type=sha
             type=raw,value=latest
 
+      - name: Create npmrc for Docker build
+        run: |
+          echo "@asachs01:registry=https://npm.pkg.github.com" > .npmrc.docker
+          echo "//npm.pkg.github.com/:_authToken=${{ secrets.GITHUB_TOKEN }}" >> .npmrc.docker
+
       - name: Build and push
         uses: docker/build-push-action@v5
         with:
@@ -77,5 +82,5 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
-          build-args: |
-            GITHUB_TOKEN=${{ secrets.GITHUB_TOKEN }}
+          secret-files: |
+            npmrc=./.npmrc.docker

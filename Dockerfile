@@ -2,14 +2,11 @@ FROM node:20-alpine AS builder
 
 WORKDIR /app
 
-# Copy package files and .npmrc for GitHub Package Registry
-COPY package*.json .npmrc ./
+# Copy package files
+COPY package*.json ./
 
-# Build argument for GitHub token (passed at build time)
-ARG GITHUB_TOKEN
-ENV NODE_AUTH_TOKEN=$GITHUB_TOKEN
-
-RUN npm ci
+# Use Docker build secrets for GitHub Package Registry authentication
+RUN --mount=type=secret,id=npmrc,target=/root/.npmrc npm ci
 
 COPY . .
 RUN npm run build
