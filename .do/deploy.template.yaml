@@ -1,0 +1,29 @@
+spec:
+  name: datto-rmm-mcp
+  services:
+  - name: datto-rmm-mcp
+    github:
+      repo: wyre-technology/datto-rmm-mcp
+      branch: main
+      deploy_on_push: true
+    source_dir: /
+    dockerfile_path: Dockerfile
+    http_port: 8080
+    instance_count: 1
+    instance_size_slug: basic-xxs
+    envs:
+    - key: MCP_TRANSPORT
+      value: "http"
+      scope: RUN_TIME
+    - key: NODE_ENV
+      value: "production"
+      scope: RUN_TIME
+    - key: DATTO_API_KEY
+      type: SECRET
+      scope: RUN_AND_BUILD_TIME
+    - key: DATTO_API_SECRET
+      type: SECRET
+      scope: RUN_AND_BUILD_TIME
+    - key: DATTO_PLATFORM
+      type: SECRET
+      scope: RUN_AND_BUILD_TIME

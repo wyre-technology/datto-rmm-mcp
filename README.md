@@ -2,6 +2,12 @@
 
 MCP server for Datto RMM, enabling Claude to interact with your Datto RMM account.
 
+## One-Click Deployment
+
+[![Deploy to DO](https://www.deploytodo.com/do-btn-blue.svg)](https://cloud.digitalocean.com/apps/new?repo=https://github.com/wyre-technology/datto-rmm-mcp/tree/main)
+
+[![Deploy to Cloudflare Workers](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/wyre-technology/datto-rmm-mcp)
+
 ## Features
 
 - **Device Management**: List, search, and get details for devices
