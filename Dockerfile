@@ -12,8 +12,8 @@ WORKDIR /app
 # Copy package files
 COPY package*.json ./
 
-# Install dependencies (--ignore-scripts prevents 'prepare' from running before source is copied)
-RUN npm ci --ignore-scripts
+# Install dependencies using Docker build secret for GitHub Packages auth
+RUN --mount=type=secret,id=npmrc,target=/root/.npmrc npm ci --ignore-scripts
 
 # Copy source code
 COPY . .
