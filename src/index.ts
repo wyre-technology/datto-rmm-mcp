@@ -8,7 +8,6 @@
  */
 
 import { createServer, IncomingMessage, ServerResponse, Server as HttpServer } from "node:http";
-import { randomUUID } from "node:crypto";
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
@@ -18,22 +17,6 @@ import {
   ListToolsRequestSchema,
 } from "@modelcontextprotocol/sdk/types.js";
 import { DattoRmmClient, type Platform } from "@asachs01/node-datto-rmm";
-
-// ---------------------------------------------------------------------------
-// Server instance
-// ---------------------------------------------------------------------------
-
-const server = new Server(
-  {
-    name: "datto-rmm-mcp",
-    version: "1.0.0",
-  },
-  {
-    capabilities: {
-      tools: {},
-    },
-  }
-);
 
 // ---------------------------------------------------------------------------
 // Credentials
@@ -72,10 +55,23 @@ function createClient(creds: DattoCredentials): DattoRmmClient {
 }
 
 // ---------------------------------------------------------------------------
-// Tool definitions
+// Server factory — creates a fresh server per request (stateless HTTP mode)
 // ---------------------------------------------------------------------------
 
-server.setRequestHandler(ListToolsRequestSchema, async () => {
+function createMcpServer(): Server {
+  const server = new Server(
+    {
+      name: "datto-rmm-mcp",
+      version: "1.0.0",
+    },
+    {
+      capabilities: {
+        tools: {},
+      },
+    }
+  );
+
+  server.setRequestHandler(ListToolsRequestSchema, async () => {
   return {
     tools: [
       {
@@ -379,11 +375,15 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
   }
 });
 
+  return server;
+}
+
 // ---------------------------------------------------------------------------
 // Transport: stdio (default)
 // ---------------------------------------------------------------------------
 
 async function startStdioTransport(): Promise<void> {
+  const server = createMcpServer();
   const transport = new StdioServerTransport();
   await server.connect(transport);
   console.error("Datto RMM MCP server running on stdio");
@@ -401,11 +401,6 @@ async function startHttpTransport(): Promise<void> {
   const authMode = process.env.AUTH_MODE || "env";
   const isGatewayMode = authMode === "gateway";
 
-  const httpTransport = new StreamableHTTPServerTransport({
-    sessionIdGenerator: () => randomUUID(),
-    enableJsonResponse: true,
-  });
-
   httpServer = createServer((req: IncomingMessage, res: ServerResponse) => {
     const url = new URL(req.url || "/", `http://${req.headers.host || "localhost"}`);
 
@@ -421,8 +416,19 @@ async function startHttpTransport(): Promise<void> {
       return;
     }
 
-    // MCP endpoint
+    // MCP endpoint — stateless: fresh server + transport per request
     if (url.pathname === "/mcp") {
+      // Only POST is supported in stateless mode
+      if (req.method !== "POST") {
+        res.writeHead(405, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({
+          jsonrpc: "2.0",
+          error: { code: -32000, message: "Method not allowed" },
+          id: null,
+        }));
+        return;
+      }
+
       // In gateway mode, extract credentials from headers
       if (isGatewayMode) {
         const headers = req.headers as Record<string, string | string[] | undefined>;
@@ -440,7 +446,6 @@ async function startHttpTransport(): Promise<void> {
           return;
         }
 
-        // Set process.env so getCredentials() picks them up for this request
         process.env.DATTO_API_KEY = apiKey;
         process.env.DATTO_API_SECRET = apiSecret;
         if (platform) {
@@ -448,7 +453,32 @@ async function startHttpTransport(): Promise<void> {
         }
       }
 
-      httpTransport.handleRequest(req, res);
+      // Stateless: create fresh server + transport for each request
+      const server = createMcpServer();
+      const transport = new StreamableHTTPServerTransport({
+        sessionIdGenerator: undefined,
+        enableJsonResponse: true,
+      });
+
+      res.on("close", () => {
+        transport.close();
+        server.close();
+      });
+
+      server.connect(transport as unknown as Transport).then(() => {
+        transport.handleRequest(req, res);
+      }).catch((err) => {
+        console.error("MCP transport error:", err);
+        if (!res.headersSent) {
+          res.writeHead(500, { "Content-Type": "application/json" });
+          res.end(JSON.stringify({
+            jsonrpc: "2.0",
+            error: { code: -32603, message: "Internal error" },
+            id: null,
+          }));
+        }
+      });
+
       return;
     }
 
@@ -456,8 +486,6 @@ async function startHttpTransport(): Promise<void> {
     res.writeHead(404, { "Content-Type": "application/json" });
     res.end(JSON.stringify({ error: "Not found", endpoints: ["/mcp", "/health"] }));
   });
-
-  await server.connect(httpTransport as unknown as Transport);
 
   await new Promise<void>((resolve) => {
     httpServer!.listen(port, host, () => {
@@ -481,7 +509,6 @@ function setupShutdownHandlers(): void {
         httpServer!.close((err) => (err ? reject(err) : resolve()));
       });
     }
-    await server.close();
     process.exit(0);
   };
 
