@@ -4,15 +4,24 @@
  *
  * This MCP server provides tools for interacting with Datto RMM API.
  * It accepts credentials via environment variables from the MCP Gateway.
+ * Supports both stdio (default) and HTTP (StreamableHTTP) transports.
  */
 
+import { createServer, IncomingMessage, ServerResponse, Server as HttpServer } from "node:http";
+import { randomUUID } from "node:crypto";
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
+import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
+import { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
 import {
   CallToolRequestSchema,
   ListToolsRequestSchema,
 } from "@modelcontextprotocol/sdk/types.js";
 import { DattoRmmClient, type Platform } from "@asachs01/node-datto-rmm";
+
+// ---------------------------------------------------------------------------
+// Server instance
+// ---------------------------------------------------------------------------
 
 const server = new Server(
   {
@@ -26,7 +35,10 @@ const server = new Server(
   }
 );
 
-// Credential extraction from gateway headers/env
+// ---------------------------------------------------------------------------
+// Credentials
+// ---------------------------------------------------------------------------
+
 interface DattoCredentials {
   apiKey: string;
   apiSecretKey: string;
@@ -59,7 +71,10 @@ function createClient(creds: DattoCredentials): DattoRmmClient {
   });
 }
 
-// Define available tools
+// ---------------------------------------------------------------------------
+// Tool definitions
+// ---------------------------------------------------------------------------
+
 server.setRequestHandler(ListToolsRequestSchema, async () => {
   return {
     tools: [
@@ -206,7 +221,10 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
   };
 });
 
+// ---------------------------------------------------------------------------
 // Helper to collect items from async iterator
+// ---------------------------------------------------------------------------
+
 async function collectItems<T>(
   iterable: AsyncIterable<T>,
   max: number
@@ -219,7 +237,10 @@ async function collectItems<T>(
   return items;
 }
 
-// Handle tool calls
+// ---------------------------------------------------------------------------
+// Tool call handler
+// ---------------------------------------------------------------------------
+
 server.setRequestHandler(CallToolRequestSchema, async (request) => {
   const { name, arguments: args } = request.params;
   const creds = getCredentials();
@@ -246,10 +267,8 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
         let devices;
         if (params.siteUid) {
-          // List devices for a specific site
           devices = await collectItems(client.sites.devicesAll(params.siteUid), max);
         } else {
-          // List all devices in the account
           devices = await collectItems(client.account.devicesAll(), max);
         }
 
@@ -272,10 +291,8 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
         let alerts;
         if (params.siteUid) {
-          // List open alerts for a specific site
           alerts = await collectItems(client.sites.alertsOpenAll(params.siteUid), max);
         } else {
-          // List all open alerts in the account
           alerts = await collectItems(client.account.alertsOpenAll(), max);
         }
 
@@ -362,11 +379,130 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
   }
 });
 
-// Start the server
-async function main() {
+// ---------------------------------------------------------------------------
+// Transport: stdio (default)
+// ---------------------------------------------------------------------------
+
+async function startStdioTransport(): Promise<void> {
   const transport = new StdioServerTransport();
   await server.connect(transport);
   console.error("Datto RMM MCP server running on stdio");
+}
+
+// ---------------------------------------------------------------------------
+// Transport: HTTP (StreamableHTTPServerTransport)
+// ---------------------------------------------------------------------------
+
+let httpServer: HttpServer | undefined;
+
+async function startHttpTransport(): Promise<void> {
+  const port = parseInt(process.env.MCP_HTTP_PORT || "8080", 10);
+  const host = process.env.MCP_HTTP_HOST || "0.0.0.0";
+  const authMode = process.env.AUTH_MODE || "env";
+  const isGatewayMode = authMode === "gateway";
+
+  const httpTransport = new StreamableHTTPServerTransport({
+    sessionIdGenerator: () => randomUUID(),
+    enableJsonResponse: true,
+  });
+
+  httpServer = createServer((req: IncomingMessage, res: ServerResponse) => {
+    const url = new URL(req.url || "/", `http://${req.headers.host || "localhost"}`);
+
+    // Health endpoint - no auth required
+    if (url.pathname === "/health") {
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({
+        status: "ok",
+        transport: "http",
+        authMode: isGatewayMode ? "gateway" : "env",
+        timestamp: new Date().toISOString(),
+      }));
+      return;
+    }
+
+    // MCP endpoint
+    if (url.pathname === "/mcp") {
+      // In gateway mode, extract credentials from headers
+      if (isGatewayMode) {
+        const headers = req.headers as Record<string, string | string[] | undefined>;
+        const apiKey = headers["x-datto-api-key"] as string | undefined;
+        const apiSecret = headers["x-datto-api-secret"] as string | undefined;
+        const platform = headers["x-datto-platform"] as string | undefined;
+
+        if (!apiKey || !apiSecret) {
+          res.writeHead(401, { "Content-Type": "application/json" });
+          res.end(JSON.stringify({
+            error: "Missing credentials",
+            message: "Gateway mode requires X-Datto-API-Key and X-Datto-API-Secret headers",
+            required: ["X-Datto-API-Key", "X-Datto-API-Secret"],
+          }));
+          return;
+        }
+
+        // Set process.env so getCredentials() picks them up for this request
+        process.env.DATTO_API_KEY = apiKey;
+        process.env.DATTO_API_SECRET = apiSecret;
+        if (platform) {
+          process.env.DATTO_PLATFORM = platform;
+        }
+      }
+
+      httpTransport.handleRequest(req, res);
+      return;
+    }
+
+    // 404 for everything else
+    res.writeHead(404, { "Content-Type": "application/json" });
+    res.end(JSON.stringify({ error: "Not found", endpoints: ["/mcp", "/health"] }));
+  });
+
+  await server.connect(httpTransport as unknown as Transport);
+
+  await new Promise<void>((resolve) => {
+    httpServer!.listen(port, host, () => {
+      console.error(`Datto RMM MCP server listening on http://${host}:${port}/mcp`);
+      console.error(`Health check available at http://${host}:${port}/health`);
+      console.error(`Authentication mode: ${isGatewayMode ? "gateway (header-based)" : "env (environment variables)"}`);
+      resolve();
+    });
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Graceful shutdown
+// ---------------------------------------------------------------------------
+
+function setupShutdownHandlers(): void {
+  const shutdown = async () => {
+    console.error("Shutting down Datto RMM MCP server...");
+    if (httpServer) {
+      await new Promise<void>((resolve, reject) => {
+        httpServer!.close((err) => (err ? reject(err) : resolve()));
+      });
+    }
+    await server.close();
+    process.exit(0);
+  };
+
+  process.on("SIGINT", shutdown);
+  process.on("SIGTERM", shutdown);
+}
+
+// ---------------------------------------------------------------------------
+// Main entry point
+// ---------------------------------------------------------------------------
+
+async function main(): Promise<void> {
+  setupShutdownHandlers();
+
+  const transportType = process.env.MCP_TRANSPORT || "stdio";
+
+  if (transportType === "http") {
+    await startHttpTransport();
+  } else {
+    await startStdioTransport();
+  }
 }
 
 main().catch(console.error);

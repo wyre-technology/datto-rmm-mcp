@@ -1,31 +1,84 @@
-FROM node:20-alpine AS builder
+# Multi-stage build for efficient container size
+FROM node:22-alpine AS builder
 
+# Build arguments
+ARG VERSION="unknown"
+ARG COMMIT_SHA="unknown"
+ARG BUILD_DATE="unknown"
+
+# Set working directory
 WORKDIR /app
 
 # Copy package files
 COPY package*.json ./
 
-# Use Docker build secrets for GitHub Package Registry authentication
-RUN --mount=type=secret,id=npmrc,target=/root/.npmrc npm ci
+# Install dependencies (--ignore-scripts prevents 'prepare' from running before source is copied)
+RUN npm ci --ignore-scripts
 
+# Copy source code
 COPY . .
+
+# Build the application
 RUN npm run build
 
-FROM node:20-alpine AS runner
+# Production stage
+FROM node:22-alpine AS production
 
+# Create a non-root user for security
+RUN addgroup -g 1001 -S datto && \
+    adduser -S datto -u 1001 -G datto
+
+# Set working directory
 WORKDIR /app
 
-ENV NODE_ENV=production
-
-# Create non-root user
-RUN addgroup --system --gid 1001 nodejs && \
-    adduser --system --uid 1001 mcp
-
+# Copy package files and built application from builder stage
+COPY package*.json ./
 COPY --from=builder /app/dist ./dist
 COPY --from=builder /app/node_modules ./node_modules
-COPY --from=builder /app/package.json ./
 
-USER mcp
+# Prune dev dependencies (avoids re-installing git deps which need build tools)
+RUN npm prune --omit=dev && npm cache clean --force
 
-# MCP servers communicate via stdio
+# Create logs directory
+RUN mkdir -p /app/logs && chown -R datto:datto /app
+
+# Switch to non-root user
+USER datto
+
+# Expose port for HTTP transport
+EXPOSE 8080
+
+# Health check against the actual HTTP endpoint
+HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
+  CMD wget --no-verbose --tries=1 --spider http://localhost:8080/health || exit 1
+
+# Set environment variables
+ENV NODE_ENV=production
+ENV MCP_TRANSPORT=http
+ENV MCP_HTTP_PORT=8080
+ENV MCP_HTTP_HOST=0.0.0.0
+# Default to env mode for backward compatibility; set to 'gateway' for hosted deployment
+ENV AUTH_MODE=env
+
+# Start the application
 CMD ["node", "dist/index.js"]
+
+# Build arguments for runtime
+ARG VERSION="unknown"
+ARG COMMIT_SHA="unknown"
+ARG BUILD_DATE="unknown"
+
+# OCI labels for metadata
+LABEL maintainer="engineering@wyre.ai"
+LABEL version="${VERSION}"
+LABEL description="Datto RMM MCP Server - Model Context Protocol server for Datto RMM"
+LABEL org.opencontainers.image.title="datto-rmm-mcp"
+LABEL org.opencontainers.image.description="Model Context Protocol server for Datto RMM integration"
+LABEL org.opencontainers.image.version="${VERSION}"
+LABEL org.opencontainers.image.created="${BUILD_DATE}"
+LABEL org.opencontainers.image.revision="${COMMIT_SHA}"
+LABEL org.opencontainers.image.source="https://github.com/wyre-technology/datto-rmm-mcp"
+LABEL org.opencontainers.image.documentation="https://github.com/wyre-technology/datto-rmm-mcp/blob/main/README.md"
+LABEL org.opencontainers.image.url="https://github.com/wyre-technology/datto-rmm-mcp/pkgs/container/datto-rmm-mcp"
+LABEL org.opencontainers.image.vendor="Wyre Technology"
+LABEL org.opencontainers.image.licenses="Apache-2.0"
