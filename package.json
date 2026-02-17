@@ -41,7 +41,7 @@
   "homepage": "https://github.com/wyre-technology/datto-rmm-mcp#readme",
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.25.3",
-    "@asachs01/node-datto-rmm": "^1.0.0"
+    "@wyre-technology/node-datto-rmm": "^1.0.0"
   },
   "devDependencies": {
     "@types/node": "^20.11.0",
