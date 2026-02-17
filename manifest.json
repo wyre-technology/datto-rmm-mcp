@@ -1,33 +1,29 @@
 {
   "manifest_version": "0.3",
   "name": "datto-rmm-mcp",
-  "version": "0.0.1",
   "display_name": "Datto RMM MCP Server",
-  "description": "Datto RMM MCP server for Claude",
-  "author": { "name": "Aaron Sachs", "url": "https://github.com/asachs01" },
+  "version": "0.0.0",
+  "description": "MCP server for Datto RMM - access devices, sites, alerts, and jobs through AI assistants",
+  "long_description": "Provides AI assistants with structured access to your Datto RMM data. Manage devices, sites, alerts, jobs, and components through the Model Context Protocol.",
+  "author": { "name": "Wyre Technology", "url": "https://github.com/wyre-technology" },
   "repository": { "type": "git", "url": "https://github.com/wyre-technology/datto-rmm-mcp" },
   "homepage": "https://github.com/wyre-technology/datto-rmm-mcp",
-  "license": "MIT",
-  "keywords": ["datto", "rmm", "monitoring", "msp", "it-management"],
+  "license": "Apache-2.0",
+  "keywords": ["datto", "rmm", "msp", "devices", "kaseya", "it-management"],
   "server": {
     "type": "node",
     "entry_point": "dist/index.js",
     "mcp_config": {
       "command": "node",
       "args": ["${__dirname}/dist/index.js"],
-      "env": {
-        "DATTO_API_KEY": "${user_config.datto_api_key}",
-        "DATTO_API_SECRET": "${user_config.datto_api_secret}",
-        "DATTO_PLATFORM": "${user_config.datto_platform}",
-        "MCP_TRANSPORT": "stdio"
-      }
+      "env": { "DATTO_API_KEY": "${user_config.datto_api_key}", "DATTO_API_SECRET": "${user_config.datto_api_secret}", "DATTO_PLATFORM": "${user_config.datto_platform}", "MCP_TRANSPORT": "stdio" }
     }
   },
   "tools_generated": true,
   "user_config": {
-    "datto_api_key": { "type": "string", "title": "Datto API Key", "description": "Your Datto RMM API key", "required": true, "sensitive": true },
-    "datto_api_secret": { "type": "string", "title": "Datto API Secret", "description": "Your Datto RMM API secret", "required": true, "sensitive": true },
-    "datto_platform": { "type": "string", "title": "Datto Platform", "description": "Datto platform region (pinotage, concord, or merlot)", "required": true }
+    "datto_api_key": { "type": "string", "title": "Datto RMM API Key", "description": "Your Datto RMM API key", "sensitive": true, "required": true },
+    "datto_api_secret": { "type": "string", "title": "Datto RMM API Secret", "description": "Your Datto RMM API secret", "sensitive": true, "required": true },
+    "datto_platform": { "type": "string", "title": "Datto Platform", "description": "Platform region: pinotage, merlot, concord, vidal, zinfandel, or syrah", "sensitive": false, "required": false }
   },
   "compatibility": { "platforms": ["darwin", "win32", "linux"], "runtimes": { "node": ">=18.0.0" }, "claude_desktop": ">=0.10.0" }
 }
