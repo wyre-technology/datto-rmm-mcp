@@ -13,7 +13,7 @@ const mockAccountDevicesAll = vi.fn();
 const mockAccountSitesAll = vi.fn();
 const mockAccountAlertsOpenAll = vi.fn();
 
-vi.mock('@asachs01/node-datto-rmm', () => ({
+vi.mock('@wyre-technology/node-datto-rmm', () => ({
   DattoRmmClient: vi.fn().mockImplementation(() => ({
     devices: {
       get: mockDevicesGet,
