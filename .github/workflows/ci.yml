@@ -70,7 +70,7 @@ jobs:
 
       - name: Create npmrc for Docker build
         run: |
-          echo "@asachs01:registry=https://npm.pkg.github.com" > .npmrc.docker
+          echo "@wyre-technology:registry=https://npm.pkg.github.com" > .npmrc.docker
           echo "//npm.pkg.github.com/:_authToken=${{ secrets.GITHUB_TOKEN }}" >> .npmrc.docker
 
       - name: Build and push
