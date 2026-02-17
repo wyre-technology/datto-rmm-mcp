@@ -16,7 +16,7 @@ import {
   CallToolRequestSchema,
   ListToolsRequestSchema,
 } from "@modelcontextprotocol/sdk/types.js";
-import { DattoRmmClient, type Platform } from "@asachs01/node-datto-rmm";
+import { DattoRmmClient, type Platform } from "@wyre-technology/node-datto-rmm";
 
 // ---------------------------------------------------------------------------
 // Credentials
