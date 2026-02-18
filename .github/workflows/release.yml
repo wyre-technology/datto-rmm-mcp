@@ -19,6 +19,10 @@ jobs:
         with:
           node-version: ${{ matrix.node-version }}
           cache: 'npm'
+      - name: Configure npm for GitHub Packages
+        run: |
+          echo "@wyre-technology:registry=https://npm.pkg.github.com" >> .npmrc
+          echo "//npm.pkg.github.com/:_authToken=${{ secrets.GITHUB_TOKEN }}" >> .npmrc
       - run: npm ci
       - run: npm run lint
         continue-on-error: true
@@ -41,6 +45,10 @@ jobs:
         with:
           node-version: '20'
           cache: 'npm'
+      - name: Configure npm for GitHub Packages
+        run: |
+          echo "@wyre-technology:registry=https://npm.pkg.github.com" >> .npmrc
+          echo "//npm.pkg.github.com/:_authToken=${{ secrets.GITHUB_TOKEN }}" >> .npmrc
       - run: npm ci
       - run: npm run build
       - name: Semantic Release
