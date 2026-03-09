@@ -17,6 +17,8 @@ import {
   ListToolsRequestSchema,
 } from "@modelcontextprotocol/sdk/types.js";
 import { DattoRmmClient, type Platform } from "@wyre-technology/node-datto-rmm";
+import { setServerRef } from "./utils/server-ref.js";
+import { elicitSelection } from "./utils/elicitation.js";
 
 // ---------------------------------------------------------------------------
 // Credentials
@@ -70,6 +72,8 @@ function createMcpServer(): Server {
       },
     }
   );
+
+  setServerRef(server);
 
   server.setRequestHandler(ListToolsRequestSchema, async () => {
   return {
@@ -260,10 +264,34 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       case "datto_list_devices": {
         const params = args as { siteUid?: string; max?: number };
         const max = params.max || 50;
+        let siteUid = params.siteUid;
+
+        // If no site filter, ask the user if they want to narrow by site
+        if (!siteUid) {
+          const siteFilter = await elicitSelection(
+            "Listing all devices across all sites can return a large result set. Would you like to filter by a specific site?",
+            "site",
+            [
+              { value: "__all__", label: "All sites (no filter)" },
+              { value: "__enter__", label: "Enter a site UID manually" },
+            ]
+          );
+          if (siteFilter === "__enter__") {
+            const { elicitText } = await import("./utils/elicitation.js");
+            const enteredUid = await elicitText(
+              "Enter the site UID to filter devices by.",
+              "siteUid",
+              "The site UID from Datto RMM"
+            );
+            if (enteredUid) {
+              siteUid = enteredUid;
+            }
+          }
+        }
 
         let devices;
-        if (params.siteUid) {
-          devices = await collectItems(client.sites.devicesAll(params.siteUid), max);
+        if (siteUid) {
+          devices = await collectItems(client.sites.devicesAll(siteUid), max);
         } else {
           devices = await collectItems(client.account.devicesAll(), max);
         }
@@ -284,10 +312,34 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       case "datto_list_alerts": {
         const params = args as { siteUid?: string; max?: number };
         const max = params.max || 50;
+        let siteUid = params.siteUid;
+
+        // If no site filter, ask the user if they want to narrow by site
+        if (!siteUid) {
+          const siteFilter = await elicitSelection(
+            "Listing all open alerts can return many results. Would you like to filter by a specific site?",
+            "site",
+            [
+              { value: "__all__", label: "All sites (no filter)" },
+              { value: "__enter__", label: "Enter a site UID manually" },
+            ]
+          );
+          if (siteFilter === "__enter__") {
+            const { elicitText } = await import("./utils/elicitation.js");
+            const enteredUid = await elicitText(
+              "Enter the site UID to filter alerts by.",
+              "siteUid",
+              "The site UID from Datto RMM"
+            );
+            if (enteredUid) {
+              siteUid = enteredUid;
+            }
+          }
+        }
 
         let alerts;
-        if (params.siteUid) {
-          alerts = await collectItems(client.sites.alertsOpenAll(params.siteUid), max);
+        if (siteUid) {
+          alerts = await collectItems(client.sites.alertsOpenAll(siteUid), max);
         } else {
           alerts = await collectItems(client.account.alertsOpenAll(), max);
         }
