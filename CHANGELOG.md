@@ -1,3 +1,10 @@
+# [1.3.0](https://github.com/wyre-technology/datto-rmm-mcp/compare/v1.2.0...v1.3.0) (2026-03-10)
+
+
+### Features
+
+* **elicitation:** add MCP elicitation support with graceful fallback ([fca1479](https://github.com/wyre-technology/datto-rmm-mcp/commit/fca14798350c78a5e84a95b28481bdf0a65c84b1))
+
 # [1.2.0](https://github.com/wyre-technology/datto-rmm-mcp/compare/v1.1.1...v1.2.0) (2026-03-02)
 
 
