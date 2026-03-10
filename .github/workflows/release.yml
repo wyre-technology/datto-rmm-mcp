@@ -56,6 +56,29 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: npx semantic-release
 
+      - name: Get released version
+        id: release-version
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          VERSION=$(node -p "require('./package.json').version")
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          if gh release view "v$VERSION" --repo ${{ github.repository }} &>/dev/null; then
+            echo "released=true" >> $GITHUB_OUTPUT
+          else
+            echo "released=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Trigger MCP Gateway redeploy
+        if: steps.release-version.outputs.released == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GATEWAY_DEPLOY_PAT }}
+        run: |
+          gh api repos/wyre-technology/mcp-gateway/dispatches \
+            -f event_type=mcp-server-updated \
+            -f "client_payload[server]=${{ github.event.repository.name }}" \
+            -f "client_payload[version]=${{ steps.release-version.outputs.version }}"
+
   docker:
     name: Docker
     runs-on: ubuntu-latest
