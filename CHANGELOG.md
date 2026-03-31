@@ -1,3 +1,10 @@
+## [1.3.1](https://github.com/wyre-technology/datto-rmm-mcp/compare/v1.3.0...v1.3.1) (2026-03-31)
+
+
+### Bug Fixes
+
+* **deploy:** replace node_compat with nodejs_compat for Wrangler v4 ([752a249](https://github.com/wyre-technology/datto-rmm-mcp/commit/752a24921f3517bbf9dffca00d30ac96116aef8e))
+
 # [1.3.0](https://github.com/wyre-technology/datto-rmm-mcp/compare/v1.2.0...v1.3.0) (2026-03-10)
 
 
