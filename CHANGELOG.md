@@ -1,3 +1,10 @@
+## [1.3.2](https://github.com/wyre-technology/datto-rmm-mcp/compare/v1.3.1...v1.3.2) (2026-04-06)
+
+
+### Bug Fixes
+
+* move npm prune to builder stage for GitHub Packages auth ([41cfa26](https://github.com/wyre-technology/datto-rmm-mcp/commit/41cfa26266788583559e55b12c228b717f87de3d))
+
 ## [1.3.1](https://github.com/wyre-technology/datto-rmm-mcp/compare/v1.3.0...v1.3.1) (2026-03-31)
 
 
