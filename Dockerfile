@@ -21,6 +21,9 @@ COPY . .
 # Build the application
 RUN npm run build
 
+# Prune dev dependencies in builder stage (must happen here while npmrc secret is available)
+RUN --mount=type=secret,id=npmrc,target=/root/.npmrc npm prune --omit=dev
+
 # Production stage
 FROM node:22-alpine AS production
 
@@ -36,8 +39,8 @@ COPY package*.json ./
 COPY --from=builder /app/dist ./dist
 COPY --from=builder /app/node_modules ./node_modules
 
-# Prune dev dependencies (avoids re-installing git deps which need build tools)
-RUN npm prune --omit=dev && npm cache clean --force
+# Clean npm cache
+RUN npm cache clean --force
 
 # Create logs directory
 RUN mkdir -p /app/logs && chown -R datto:datto /app
