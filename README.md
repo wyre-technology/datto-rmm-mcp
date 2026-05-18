@@ -7,6 +7,7 @@ MCP server for Datto RMM, enabling Claude to interact with your Datto RMM accoun
 [![Deploy to DO](https://www.deploytodo.com/do-btn-blue.svg)](https://cloud.digitalocean.com/apps/new?repo=https://github.com/wyre-technology/datto-rmm-mcp/tree/main)
 
 [![Deploy to Cloudflare Workers](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/wyre-technology/datto-rmm-mcp)
+[![SafeSkill 96/100](https://img.shields.io/badge/SafeSkill-96%2F100_Verified%20Safe-brightgreen)](https://safeskill.dev/scan/wyre-technology-datto-rmm-mcp)
 
 ## Features
 
