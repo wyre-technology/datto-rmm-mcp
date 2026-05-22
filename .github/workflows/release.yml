@@ -42,6 +42,9 @@ jobs:
           echo "//npm.pkg.github.com/:_authToken=${{ secrets.GITHUB_TOKEN }}" >> .npmrc
       - run: npm ci
       - run: npm run build
+      - name: Capture pre-release version
+        run: echo "PRE_VERSION=$(node -p \"require('./package.json').version\")" >> "$GITHUB_ENV"
+
       - name: Semantic Release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -53,10 +56,10 @@ jobs:
         run: |
           VERSION=$(node -p "require('./package.json').version")
           echo "version=$VERSION" >> $GITHUB_OUTPUT
-          if gh release view "v$VERSION" --repo ${{ github.repository }} &>/dev/null; then
-            echo "released=true" >> $GITHUB_OUTPUT
+          if [ "$VERSION" != "$PRE_VERSION" ]; then
+            echo "released=true" >> "$GITHUB_OUTPUT"
           else
-            echo "released=false" >> $GITHUB_OUTPUT
+            echo "released=false" >> "$GITHUB_OUTPUT"
           fi
 
   docker:
