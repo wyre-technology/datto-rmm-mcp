@@ -142,6 +142,9 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           BUNDLE_NAME=$(node -p "require('./package.json').name.replace(/^@.*\\//, '')")
+          echo "@wyre-technology:registry=https://npm.pkg.github.com" >> .npmrc
+          echo "//npm.pkg.github.com/:_authToken=${{ secrets.GITHUB_TOKEN }}" >> .npmrc
+          npm ci
           npm install -g @anthropic-ai/mcpb
           npm run pack:mcpb
           gh release upload "v${{ needs.release.outputs.version }}" "${BUNDLE_NAME}.mcpb" \
