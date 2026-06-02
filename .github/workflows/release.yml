@@ -105,21 +105,6 @@ jobs:
           fi
           echo "version=$RELEASE_VERSION" >> "$GITHUB_OUTPUT"
 
-      - name: Write npmrc for Docker build (private @wyre-technology/* deps)
-        # The Dockerfile mounts /root/.npmrc via `--mount=type=secret,id=npmrc`
-        # to authenticate `npm ci` against GitHub Packages. Without this, the
-        # build fails 401 on @wyre-technology/node-datto-rmm. Same pattern as
-        # mcp-server-ci.yml's docker-smoke-test step. See skill
-        # ghcr-npm-auth-in-ci.
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          {
-            printf '//npm.pkg.github.com/:_authToken=%s\n' "$NODE_AUTH_TOKEN"
-            printf '@wyre-technology:registry=https://npm.pkg.github.com\n'
-            printf 'always-auth=true\n'
-          } > /tmp/npmrc
-
       - name: Build and push
         id: push
         uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8  # v6.19.2
@@ -133,8 +118,12 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
-          secret-files: |
-            npmrc=/tmp/npmrc
+          # The Dockerfile uses `ARG GITHUB_TOKEN` to write a temporary .npmrc so
+          # `npm ci` can read the private @wyre-technology/node-datto-rmm package
+          # from GitHub Packages, then deletes it so the token is never baked in.
+          # Without this build-arg the build fails 401. See skill ghcr-npm-auth-in-ci.
+          build-args: |
+            GITHUB_TOKEN=${{ secrets.GITHUB_TOKEN }}
 
       - name: Pack and upload MCPB bundle
         if: needs.release.outputs.released == 'true'
