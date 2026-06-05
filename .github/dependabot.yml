@@ -1,7 +1,14 @@
 version: 2
+registries:
+  wyre-ghpkg:
+    type: npm-registry
+    url: https://npm.pkg.github.com
+    token: ${{secrets.GHPKG_READ_TOKEN}}
 updates:
   - package-ecosystem: "npm"
     directory: "/"
+    registries:
+      - wyre-ghpkg
     schedule:
       interval: "daily"
     open-pull-requests-limit: 10
