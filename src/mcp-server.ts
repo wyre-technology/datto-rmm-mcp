@@ -122,6 +122,62 @@ async function collectItems<T>(
 }
 
 // ---------------------------------------------------------------------------
+// Device lookup helpers
+// ---------------------------------------------------------------------------
+
+async function findDevicesByHostname(
+  client: DattoRmmClient,
+  hostname: string,
+  options?: {
+    siteUid?: string;
+    exactMatch?: boolean;
+    max?: number;
+  }
+) {
+  const normalizedHostname = hostname.trim().toLowerCase();
+  const exactMatch = options?.exactMatch ?? true;
+  const max = options?.max ?? 25;
+  const matches = [];
+  const source = options?.siteUid
+    ? client.sites.devicesAll(options.siteUid)
+    : client.account.devicesAll();
+
+  for await (const device of source) {
+    const deviceHostname = device.hostname?.trim().toLowerCase();
+
+    if (!deviceHostname) {
+      continue;
+    }
+
+    const isMatch = exactMatch
+      ? deviceHostname === normalizedHostname
+      : deviceHostname.includes(normalizedHostname);
+
+    if (isMatch) {
+      matches.push({
+        id: device.id,
+        uid: device.uid,
+        hostname: device.hostname,
+        siteId: device.siteId,
+        siteUid: device.siteUid,
+        siteName: device.siteName,
+        online: device.online,
+        intIpAddress: device.intIpAddress,
+        operatingSystem: device.operatingSystem,
+        lastSeen: device.lastSeen,
+        portalUrl: device.portalUrl,
+      });
+    }
+
+    if (matches.length >= max) {
+      break;
+    }
+  }
+
+  return matches;
+}
+
+// ---------------------------------------------------------------------------
 // Server factory — creates a fresh server per request (stateless HTTP mode)
 // ---------------------------------------------------------------------------
 
@@ -145,7 +201,7 @@ export function createMcpServer(credentialOverrides?: DattoCredentials): Server 
       tools: [
         {
           name: "datto_list_devices",
-          description: "List all devices in Datto RMM. Can filter by site.",
+          description: "List multiple devices, preferably filtered by siteUid. Do not use for single hostname lookup.",
           inputSchema: {
             type: "object",
             properties: {
@@ -163,8 +219,41 @@ export function createMcpServer(credentialOverrides?: DattoCredentials): Server 
           },
         },
         {
+          name: "datto_find_device",
+          description:
+            "Find a device by hostname and return UID. Use this before datto_get_device when the user provides a hostname instead of a UID..",
+          inputSchema: {
+            type: "object",
+            properties: {
+              hostname: {
+                type: "string",
+                description:
+                  "Hostname to search for, for example APP-HV-HOST06",
+              },
+              siteUid: {
+                type: "string",
+                description:
+                  "Optional site UID to narrow the hostname lookup to one site",
+              },
+              exactMatch: {
+                type: "boolean",
+                description:
+                  "Whether to require an exact hostname match. Defaults to true.",
+                default: true,
+              },
+              max: {
+                type: "number",
+                description:
+                  "Maximum number of matching devices to return. Defaults to 25.",
+                default: 25,
+              },
+            },
+            required: ["hostname"],
+          },
+        },
+        {
           name: "datto_get_device",
-          description: "Get details for a specific device by its UID",
+          description: "Get full details for one specific device by UID. Do not use this for hostname lookup; call datto_find_device first.",
           inputSchema: {
             type: "object",
             properties: {
@@ -348,6 +437,42 @@ export function createMcpServer(credentialOverrides?: DattoCredentials): Server 
           return {
             content: [
               { type: "text", text: JSON.stringify(devices ?? [], null, 2) },
+            ],
+          };
+        }
+
+        case "datto_find_device": {
+          const {
+            hostname,
+            siteUid,
+            exactMatch = true,
+            max = 25,
+          } = args as {
+            hostname: string;
+            siteUid?: string;
+            exactMatch?: boolean;
+            max?: number;
+          };
+
+          const devices = await findDevicesByHostname(client, hostname, {
+            siteUid,
+            exactMatch,
+            max,
+          });
+
+          return {
+            content: [
+              {
+                type: "text",
+                text: JSON.stringify(
+                  {
+                    count: devices.length,
+                    devices,
+                  },
+                  null,
+                  2
+                ),
+              },
             ],
           };
         }
