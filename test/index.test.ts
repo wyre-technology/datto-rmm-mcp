@@ -4,39 +4,46 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 const mockDevicesGet = vi.fn();
 const mockDevicesCreateQuickJob = vi.fn();
 const mockSitesGet = vi.fn();
+const mockSitesDevices = vi.fn();
 const mockSitesDevicesAll = vi.fn();
 const mockSitesAlertsOpenAll = vi.fn();
 const mockAlertsResolve = vi.fn();
 const mockAuditDevice = vi.fn();
 const mockAuditDeviceSoftware = vi.fn();
+const mockAccountDevices = vi.fn();
 const mockAccountDevicesAll = vi.fn();
 const mockAccountSitesAll = vi.fn();
 const mockAccountAlertsOpenAll = vi.fn();
 
 vi.mock('@wyre-technology/node-datto-rmm', () => ({
-  DattoRmmClient: vi.fn().mockImplementation(() => ({
-    devices: {
-      get: mockDevicesGet,
-      createQuickJob: mockDevicesCreateQuickJob,
-    },
-    sites: {
-      get: mockSitesGet,
-      devicesAll: mockSitesDevicesAll,
-      alertsOpenAll: mockSitesAlertsOpenAll,
-    },
-    alerts: {
-      resolve: mockAlertsResolve,
-    },
-    audit: {
-      device: mockAuditDevice,
-      deviceSoftware: mockAuditDeviceSoftware,
-    },
-    account: {
-      devicesAll: mockAccountDevicesAll,
-      sitesAll: mockAccountSitesAll,
-      alertsOpenAll: mockAccountAlertsOpenAll,
-    },
-  })),
+  // A regular function (not an arrow function) so it can be invoked with `new`
+  DattoRmmClient: vi.fn().mockImplementation(function () {
+    return {
+      devices: {
+        get: mockDevicesGet,
+        createQuickJob: mockDevicesCreateQuickJob,
+      },
+      sites: {
+        get: mockSitesGet,
+        devices: mockSitesDevices,
+        devicesAll: mockSitesDevicesAll,
+        alertsOpenAll: mockSitesAlertsOpenAll,
+      },
+      alerts: {
+        resolve: mockAlertsResolve,
+      },
+      audit: {
+        device: mockAuditDevice,
+        deviceSoftware: mockAuditDeviceSoftware,
+      },
+      account: {
+        devices: mockAccountDevices,
+        devicesAll: mockAccountDevicesAll,
+        sitesAll: mockAccountSitesAll,
+        alertsOpenAll: mockAccountAlertsOpenAll,
+      },
+    };
+  }),
 }));
 
 // Mock MCP SDK components
@@ -44,10 +51,13 @@ const mockServerConnect = vi.fn();
 const mockSetRequestHandler = vi.fn();
 
 vi.mock('@modelcontextprotocol/sdk/server/index.js', () => ({
-  Server: vi.fn().mockImplementation(() => ({
-    connect: mockServerConnect,
-    setRequestHandler: mockSetRequestHandler,
-  })),
+  // A regular function (not an arrow function) so it can be invoked with `new`
+  Server: vi.fn().mockImplementation(function () {
+    return {
+      connect: mockServerConnect,
+      setRequestHandler: mockSetRequestHandler,
+    };
+  }),
 }));
 
 vi.mock('@modelcontextprotocol/sdk/server/stdio.js', () => ({
@@ -243,6 +253,159 @@ describe('Datto RMM MCP Server', () => {
         mockDevicesGet.mockRejectedValue(new Error('Device not found'));
 
         await expect(mockDevicesGet('invalid-uid')).rejects.toThrow('Device not found');
+      });
+    });
+
+    describe('datto_find_device', () => {
+      // Raw Datto RMM API device payloads (the SDK returns them verbatim)
+      const rawDevices = [
+        {
+          uid: 'uid-host06',
+          hostname: 'APP-HV-HOST06',
+          siteUid: 'site-1',
+          siteName: 'Main Office',
+          online: true,
+          intIpAddress: '10.0.0.6',
+          operatingSystem: 'Microsoft Windows Server 2022',
+          lastSeen: 1751900000000,
+          portalUrl: 'https://concord.centrastage.net/csm/device/uid-host06',
+        },
+        {
+          uid: 'uid-host060',
+          hostname: 'APP-HV-HOST060',
+          siteUid: 'site-2',
+          siteName: 'Branch Office',
+          online: false,
+          intIpAddress: '10.0.1.60',
+          operatingSystem: 'Microsoft Windows Server 2019',
+          lastSeen: 1751800000000,
+          portalUrl: 'https://concord.centrastage.net/csm/device/uid-host060',
+        },
+      ];
+
+      // Invoke the real CallTool handler registered by createMcpServer()
+      async function callFindDevice(args: Record<string, unknown>) {
+        process.env.DATTO_API_KEY = 'test-key';
+        process.env.DATTO_API_SECRET = 'test-secret';
+
+        const { createMcpServer } = await import('../src/mcp-server.js');
+        const { CallToolRequestSchema } = await import(
+          '@modelcontextprotocol/sdk/types.js'
+        );
+
+        createMcpServer();
+
+        const registration = mockSetRequestHandler.mock.calls.find(
+          ([schema]) => schema === CallToolRequestSchema
+        );
+        expect(registration).toBeDefined();
+        const handler = registration![1] as (request: {
+          params: { name: string; arguments: Record<string, unknown> };
+        }) => Promise<{
+          content: Array<{ type: string; text: string }>;
+          isError?: boolean;
+        }>;
+
+        return handler({
+          params: { name: 'datto_find_device', arguments: args },
+        });
+      }
+
+      it('should find a device by exact hostname (server-side filter passed through)', async () => {
+        mockAccountDevices.mockResolvedValue({ devices: rawDevices });
+
+        const result = await callFindDevice({ hostname: 'APP-HV-HOST06' });
+
+        expect(result.isError).toBeUndefined();
+        expect(mockAccountDevices).toHaveBeenCalledWith(
+          expect.objectContaining({ hostname: 'app-hv-host06' })
+        );
+
+        const payload = JSON.parse(result.content[0].text);
+        expect(payload.count).toBe(1);
+        expect(payload.devices[0]).toEqual({
+          uid: 'uid-host06',
+          hostname: 'APP-HV-HOST06',
+          siteUid: 'site-1',
+          siteName: 'Main Office',
+          online: true,
+          intIpAddress: '10.0.0.6',
+          operatingSystem: 'Microsoft Windows Server 2022',
+          lastSeen: 1751900000000,
+          portalUrl: 'https://concord.centrastage.net/csm/device/uid-host06',
+        });
+      });
+
+      it('should exclude partial matches when exactMatch is true (default)', async () => {
+        mockAccountDevices.mockResolvedValue({ devices: rawDevices });
+
+        const result = await callFindDevice({ hostname: 'app-hv-host06' });
+
+        const payload = JSON.parse(result.content[0].text);
+        expect(payload.count).toBe(1);
+        expect(payload.devices[0].uid).toBe('uid-host06');
+      });
+
+      it('should include partial matches when exactMatch is false', async () => {
+        mockAccountDevices.mockResolvedValue({ devices: rawDevices });
+
+        const result = await callFindDevice({
+          hostname: 'HOST06',
+          exactMatch: false,
+        });
+
+        const payload = JSON.parse(result.content[0].text);
+        expect(payload.count).toBe(2);
+      });
+
+      it('should respect the max parameter', async () => {
+        mockAccountDevices.mockResolvedValue({ devices: rawDevices });
+
+        const result = await callFindDevice({
+          hostname: 'HOST06',
+          exactMatch: false,
+          max: 1,
+        });
+
+        const payload = JSON.parse(result.content[0].text);
+        expect(payload.count).toBe(1);
+      });
+
+      it('should scope the lookup to a site when siteUid is provided', async () => {
+        mockSitesDevices.mockResolvedValue({ devices: [rawDevices[0]] });
+
+        const result = await callFindDevice({
+          hostname: 'APP-HV-HOST06',
+          siteUid: 'site-1',
+        });
+
+        expect(mockSitesDevices).toHaveBeenCalledWith(
+          'site-1',
+          expect.objectContaining({ hostname: 'app-hv-host06' })
+        );
+        expect(mockAccountDevices).not.toHaveBeenCalled();
+
+        const payload = JSON.parse(result.content[0].text);
+        expect(payload.count).toBe(1);
+      });
+
+      it('should return an explicit not-found error instead of an empty success', async () => {
+        mockAccountDevices.mockResolvedValue({ devices: [] });
+
+        const result = await callFindDevice({ hostname: 'NO-SUCH-HOST' });
+
+        expect(result.isError).toBe(true);
+        expect(result.content[0].text).toContain(
+          'No devices found matching hostname "NO-SUCH-HOST"'
+        );
+      });
+
+      it('should return an error for an empty hostname', async () => {
+        const result = await callFindDevice({ hostname: '   ' });
+
+        expect(result.isError).toBe(true);
+        expect(result.content[0].text).toContain('hostname must not be empty');
+        expect(mockAccountDevices).not.toHaveBeenCalled();
       });
     });
 
@@ -605,6 +768,7 @@ describe('Datto RMM MCP Server', () => {
   describe('Tool Definitions', () => {
     const expectedTools = [
       'datto_list_devices',
+      'datto_find_device',
       'datto_get_device',
       'datto_list_alerts',
       'datto_resolve_alert',
@@ -614,12 +778,13 @@ describe('Datto RMM MCP Server', () => {
       'datto_get_device_audit',
     ];
 
-    it('should define all 8 tools', () => {
-      expect(expectedTools).toHaveLength(8);
+    it('should define all 9 tools', () => {
+      expect(expectedTools).toHaveLength(9);
     });
 
     it('should include device management tools', () => {
       expect(expectedTools).toContain('datto_list_devices');
+      expect(expectedTools).toContain('datto_find_device');
       expect(expectedTools).toContain('datto_get_device');
       expect(expectedTools).toContain('datto_get_device_audit');
     });

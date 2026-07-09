@@ -94,6 +94,7 @@ Datto RMM uses regional API endpoints. Select the platform that matches your acc
 | Tool | Description |
 |------|-------------|
 | `datto_list_devices` | List devices with optional site filter |
+| `datto_find_device` | Find a device by hostname (exact or partial match) and resolve its UID |
 | `datto_get_device` | Get device details by UID |
 | `datto_list_alerts` | List open alerts with optional site filter |
 | `datto_get_alert` | Get alert details by UID (renders as an interactive card in MCP Apps hosts) |

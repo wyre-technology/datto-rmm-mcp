@@ -8,6 +8,14 @@
   - The card HTML is a self-contained vite single-file bundle embedded at build time (`src/generated/alert-card-html.ts`, committed), so it serves identically from stdio, Node HTTP, and the fs-less Cloudflare Workers runtime.
   - The card payload builder is best-effort: a sparse or unrecognized alert degrades the card (or drops it) without affecting the tool result. New contract tests in `test/mcp-apps.test.ts` drive the real Worker transport to pin the `_meta` advertisement, the `ui://` resource wire shape, and the `_card` normalization.
   - New `npm run build:ui` regenerates the embedded HTML after editing `ui/` (requires the new `vite`, `vite-plugin-singlefile`, and `@modelcontextprotocol/ext-apps` devDependencies); plain `npm run build` and CI are unaffected.
+- **`datto_find_device` tool:** lightweight device lookup by hostname (exact or
+  partial match, optional site filter, configurable max results) that resolves a
+  hostname to a device UID plus a compact summary (site, online status, internal
+  IP, OS, last seen, portal URL). Uses the Datto RMM API's server-side hostname
+  filter instead of enumerating the full device inventory. Returns an explicit
+  "No devices found" error on zero matches rather than an empty success.
+  Idea and original implementation by [@DDePuy2015](https://github.com/DDePuy2015)
+  in [#54](https://github.com/wyre-technology/datto-rmm-mcp/pull/54).
 
 ### Fixed
 

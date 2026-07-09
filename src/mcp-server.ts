@@ -17,7 +17,11 @@ import {
   ListToolsRequestSchema,
   ReadResourceRequestSchema,
 } from "@modelcontextprotocol/sdk/types.js";
-import { DattoRmmClient, type Platform } from "@wyre-technology/node-datto-rmm";
+import {
+  DattoRmmClient,
+  type Device,
+  type Platform,
+} from "@wyre-technology/node-datto-rmm";
 import { setServerRef } from "./utils/server-ref.js";
 import { elicitSelection } from "./utils/elicitation.js";
 import {
@@ -133,6 +137,86 @@ async function collectItems<T>(
 }
 
 // ---------------------------------------------------------------------------
+// Hostname lookup helper
+// ---------------------------------------------------------------------------
+
+/**
+ * Query params for device list endpoints. The Datto RMM API supports
+ * server-side hostname filtering (substring match) on both
+ * `GET /v2/account/devices` and `GET /v2/site/{siteUid}/devices`. The SDK's
+ * typed params only cover pagination, but it forwards extra query params
+ * verbatim, so we pass `hostname` through and refine the (already narrowed)
+ * result client-side for exact matching.
+ */
+interface DeviceSearchQuery {
+  hostname?: string;
+  page?: number;
+  max?: number;
+}
+
+/**
+ * The SDK returns raw Datto RMM API payloads; these runtime field names are
+ * not part of the SDK's typed `Device` interface yet.
+ */
+type RawDevice = Device & {
+  online?: boolean;
+  lastSeen?: number | string;
+  intIpAddress?: string;
+  portalUrl?: string;
+};
+
+/** Lightweight device summary returned by datto_find_device. */
+export interface DeviceMatch {
+  uid: string;
+  hostname: string;
+  siteUid?: string;
+  siteName?: string;
+  online?: boolean;
+  intIpAddress?: string;
+  operatingSystem?: string;
+  lastSeen?: number | string;
+  portalUrl?: string;
+}
+
+export async function findDevicesByHostname(
+  client: DattoRmmClient,
+  hostname: string,
+  options: { siteUid?: string; exactMatch?: boolean; max?: number } = {}
+): Promise<DeviceMatch[]> {
+  const needle = hostname.trim().toLowerCase();
+  const { siteUid, exactMatch = true, max = 25 } = options;
+
+  // One server-filtered page (API page cap: 250) is plenty for a hostname
+  // lookup; the API's hostname filter does the heavy lifting server-side.
+  const query: DeviceSearchQuery = { hostname: needle, max: 250 };
+  const response = siteUid
+    ? await client.sites.devices(siteUid, query)
+    : await client.account.devices(query);
+
+  return (response.devices ?? [])
+    .filter((device) => {
+      const candidate = device.hostname?.trim().toLowerCase();
+      if (!candidate) return false;
+      return exactMatch ? candidate === needle : candidate.includes(needle);
+    })
+    .slice(0, Math.max(1, max))
+    .map((device) => {
+      const raw = device as RawDevice;
+      return {
+        uid: device.uid,
+        hostname: device.hostname,
+        siteUid: device.siteUid,
+        siteName: device.siteName,
+        online: raw.online ?? raw.isOnline,
+        intIpAddress: raw.intIpAddress,
+        operatingSystem: device.operatingSystem,
+        lastSeen: raw.lastSeen ?? raw.lastSeenAt,
+        portalUrl: raw.portalUrl,
+      };
+    });
+}
+
+// ---------------------------------------------------------------------------
 // Server factory — creates a fresh server per request (stateless HTTP mode)
 // ---------------------------------------------------------------------------
 
@@ -157,7 +241,8 @@ export function createMcpServer(credentialOverrides?: DattoCredentials): Server 
       tools: [
         {
           name: "datto_list_devices",
-          description: "List all devices in Datto RMM. Can filter by site.",
+          description:
+            "List all devices in Datto RMM. Can filter by site. To look up a single device by hostname, use datto_find_device instead.",
           inputSchema: {
             type: "object",
             properties: {
@@ -175,8 +260,41 @@ export function createMcpServer(credentialOverrides?: DattoCredentials): Server 
           },
         },
         {
+          name: "datto_find_device",
+          description:
+            "Find a device by hostname and return its UID plus a lightweight summary. Use this before datto_get_device when the user provides a hostname instead of a UID.",
+          inputSchema: {
+            type: "object",
+            properties: {
+              hostname: {
+                type: "string",
+                description: "Hostname to search for, for example APP-HV-HOST06",
+              },
+              siteUid: {
+                type: "string",
+                description:
+                  "Optional site UID to narrow the hostname lookup to one site",
+              },
+              exactMatch: {
+                type: "boolean",
+                description:
+                  "Require an exact (case-insensitive) hostname match. Set to false for partial/substring matching. Defaults to true.",
+                default: true,
+              },
+              max: {
+                type: "number",
+                description:
+                  "Maximum number of matching devices to return (default: 25)",
+                default: 25,
+              },
+            },
+            required: ["hostname"],
+          },
+        },
+        {
           name: "datto_get_device",
-          description: "Get details for a specific device by its UID",
+          description:
+            "Get full details for a specific device by its UID. If you only have a hostname, call datto_find_device first to resolve the UID.",
           inputSchema: {
             type: "object",
             properties: {
@@ -410,6 +528,66 @@ export function createMcpServer(credentialOverrides?: DattoCredentials): Server 
           return {
             content: [
               { type: "text", text: JSON.stringify(devices ?? [], null, 2) },
+            ],
+          };
+        }
+
+        case "datto_find_device": {
+          const {
+            hostname,
+            siteUid,
+            exactMatch = true,
+            max = 25,
+          } = args as {
+            hostname: string;
+            siteUid?: string;
+            exactMatch?: boolean;
+            max?: number;
+          };
+
+          if (!hostname?.trim()) {
+            return {
+              content: [
+                { type: "text", text: "Error: hostname must not be empty" },
+              ],
+              isError: true,
+            };
+          }
+
+          const devices = await findDevicesByHostname(client, hostname, {
+            siteUid,
+            exactMatch,
+            max,
+          });
+
+          // Explicit not-found error instead of an empty success — empty
+          // successes invite downstream LLM hallucination.
+          if (devices.length === 0) {
+            const scope = siteUid ? ` in site ${siteUid}` : "";
+            const hint = exactMatch
+              ? " Retry with exactMatch: false for partial matching, or verify the hostname with datto_list_devices."
+              : " Verify the hostname with datto_list_devices.";
+            return {
+              content: [
+                {
+                  type: "text",
+                  text: `No devices found matching hostname "${hostname}"${scope}.${hint}`,
+                },
+              ],
+              isError: true,
+            };
+          }
+
+          return {
+            content: [
+              {
+                type: "text",
+                text: JSON.stringify(
+                  { count: devices.length, devices },
+                  null,
+                  2
+                ),
+              },
             ],
           };
         }
