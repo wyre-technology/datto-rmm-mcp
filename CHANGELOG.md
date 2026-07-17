@@ -1,5 +1,14 @@
 ## [Unreleased]
 
+### Added
+
+- **Interactive alert card via MCP Apps (SEP-1865).** A new `datto_get_alert` tool fetches a single alert by UID, and its results render as an interactive card in MCP Apps hosts (Claude Desktop/web, and other hosts advertising the `io.modelcontextprotocol/ui` extension), instead of a wall of JSON. The card shows the alert type (label-resolved from the alert context via the SDK's `ALERT_CONTEXT_TYPES` mapping), priority, status, device hostname, site name, category, timestamp, and message — and includes a working "Resolve alert" round-trip that calls `datto_resolve_alert` from inside the card. Non-App hosts are unaffected: the tool's JSON payload is the raw alert plus a new `_card` field.
+  - The two renderable tools (`datto_get_alert`, `datto_resolve_alert`) advertise the UI via `_meta` (`ui/resourceUri`, plus the nested `ui.resourceUri` form) pointing at a new `ui://datto-rmm/alert-card.html` resource served as `text/html;profile=mcp-app`. The server now declares the `resources` capability and answers `resources/list` / `resources/read` for the card.
+  - The card is **neutral by default** and brandable via `window.__BRAND__` injection or `MCP_BRAND_*` environment variables (`MCP_BRAND_NAME`, `MCP_BRAND_LOGO_URL`, `MCP_BRAND_PRIMARY_COLOR`, `MCP_BRAND_ACCENT_COLOR`, `MCP_BRAND_BG`, `MCP_BRAND_TEXT`), applied at serve time by replacing the card's `BRAND_INJECT` marker. No branding configured = the HTML is served unchanged and the card renders with no brand identity.
+  - The card HTML is a self-contained vite single-file bundle embedded at build time (`src/generated/alert-card-html.ts`, committed), so it serves identically from stdio, Node HTTP, and the fs-less Cloudflare Workers runtime.
+  - The card payload builder is best-effort: a sparse or unrecognized alert degrades the card (or drops it) without affecting the tool result. New contract tests in `test/mcp-apps.test.ts` drive the real Worker transport to pin the `_meta` advertisement, the `ui://` resource wire shape, and the `_card` normalization.
+  - New `npm run build:ui` regenerates the embedded HTML after editing `ui/` (requires the new `vite`, `vite-plugin-singlefile`, and `@modelcontextprotocol/ext-apps` devDependencies); plain `npm run build` and CI are unaffected.
+
 ### Fixed
 
 - **Deploy buttons:** authenticate against the GitHub Packages npm registry during

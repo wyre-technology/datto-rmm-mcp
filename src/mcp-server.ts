@@ -13,11 +13,22 @@
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import {
   CallToolRequestSchema,
+  ListResourcesRequestSchema,
   ListToolsRequestSchema,
+  ReadResourceRequestSchema,
 } from "@modelcontextprotocol/sdk/types.js";
 import { DattoRmmClient, type Platform } from "@wyre-technology/node-datto-rmm";
 import { setServerRef } from "./utils/server-ref.js";
 import { elicitSelection } from "./utils/elicitation.js";
+import {
+  ALERT_CARD_META,
+  ALERT_CARD_RESOURCE_URI,
+  MCP_APP_RESOURCE_MIME,
+  applyBrandInjection,
+  brandFromEnv,
+  buildAlertCard,
+} from "./alert-card.js";
+import { ALERT_CARD_HTML } from "./generated/alert-card-html.js";
 
 // ---------------------------------------------------------------------------
 // Credentials
@@ -134,6 +145,7 @@ export function createMcpServer(credentialOverrides?: DattoCredentials): Server 
     {
       capabilities: {
         tools: {},
+        resources: {},
       },
     }
   );
@@ -196,8 +208,24 @@ export function createMcpServer(credentialOverrides?: DattoCredentials): Server 
           },
         },
         {
+          name: "datto_get_alert",
+          description: "Get details for a specific alert by its UID",
+          _meta: ALERT_CARD_META,
+          inputSchema: {
+            type: "object",
+            properties: {
+              alertUid: {
+                type: "string",
+                description: "The alert UID",
+              },
+            },
+            required: ["alertUid"],
+          },
+        },
+        {
           name: "datto_resolve_alert",
           description: "Resolve an alert by its UID",
+          _meta: ALERT_CARD_META,
           inputSchema: {
             type: "object",
             properties: {
@@ -285,6 +313,40 @@ export function createMcpServer(credentialOverrides?: DattoCredentials): Server 
             },
             required: ["deviceUid"],
           },
+        },
+      ],
+    };
+  });
+
+  // MCP Apps (SEP-1865): the ui:// alert card is static HTML embedded at
+  // build time (src/generated/alert-card-html.ts), so it serves identically
+  // from stdio, Node HTTP, and the fs-less Cloudflare Workers runtime.
+  server.setRequestHandler(ListResourcesRequestSchema, async () => {
+    return {
+      resources: [
+        {
+          uri: ALERT_CARD_RESOURCE_URI,
+          name: "Datto RMM Alert Card",
+          description: "Interactive MCP Apps card rendering a Datto RMM alert",
+          mimeType: MCP_APP_RESOURCE_MIME,
+        },
+      ],
+    };
+  });
+
+  server.setRequestHandler(ReadResourceRequestSchema, async (request) => {
+    const { uri } = request.params;
+    if (uri !== ALERT_CARD_RESOURCE_URI) {
+      throw new Error(`Unknown resource: ${uri}`);
+    }
+    return {
+      contents: [
+        {
+          uri,
+          mimeType: MCP_APP_RESOURCE_MIME,
+          // The card ships neutral; operators brand it at serve time via
+          // MCP_BRAND_* env vars (no vars = HTML served unchanged).
+          text: applyBrandInjection(ALERT_CARD_HTML, brandFromEnv()),
         },
       ],
     };
@@ -400,6 +462,20 @@ export function createMcpServer(credentialOverrides?: DattoCredentials): Server 
           return {
             content: [
               { type: "text", text: JSON.stringify(alerts ?? [], null, 2) },
+            ],
+          };
+        }
+
+        case "datto_get_alert": {
+          const { alertUid } = args as { alertUid: string };
+          const alert = await client.alerts.get(alertUid);
+          // MCP Apps: attach the normalized payload the ui:// alert card
+          // renders from. Best-effort — a null card just means no UI surface.
+          const card = buildAlertCard(alert);
+          const payload = card ? { ...alert, _card: card } : alert;
+          return {
+            content: [
+              { type: "text", text: JSON.stringify(payload ?? {}, null, 2) },
             ],
           };
         }
