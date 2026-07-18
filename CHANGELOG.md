@@ -11,6 +11,13 @@
 
 ### Fixed
 
+- **SDK:** bumped `@wyre-technology/node-datto-rmm` to
+  [v1.0.5](https://github.com/wyre-technology/node-datto-rmm/releases/tag/v1.0.5),
+  which reads HTTP response bodies exactly once. Previously a failed first read left
+  error responses swallowed as `{}`, hiding the API's actual error message; failing
+  requests now surface a descriptive error instead. Same pattern as
+  [connectwise-automate-mcp#54](https://github.com/wyre-technology/connectwise-automate-mcp/issues/54),
+  where the fix class originated.
 - **Deploy buttons:** authenticate against the GitHub Packages npm registry during
   one-click cloud builds. The `@wyre-technology/node-datto-rmm` dependency lives on
   GitHub Packages, which has no anonymous read, so `npm install` failed with
