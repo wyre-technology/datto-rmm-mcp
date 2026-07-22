@@ -67,6 +67,8 @@ vi.mock('@modelcontextprotocol/sdk/server/stdio.js', () => ({
 vi.mock('@modelcontextprotocol/sdk/types.js', () => ({
   ListToolsRequestSchema: Symbol('ListToolsRequestSchema'),
   CallToolRequestSchema: Symbol('CallToolRequestSchema'),
+  ListResourcesRequestSchema: Symbol('ListResourcesRequestSchema'),
+  ReadResourceRequestSchema: Symbol('ReadResourceRequestSchema'),
 }));
 
 describe('Datto RMM MCP Server', () => {
